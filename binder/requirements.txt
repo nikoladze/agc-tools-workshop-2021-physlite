@@ -1,2 +1,2 @@
-jupyter
-coffea
+jupyter~=1.0
+coffea==0.7.8
