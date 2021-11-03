@@ -361,6 +361,67 @@ def branch_to_array(branch, force_custom=False, **kwargs):
     return branch.array(**kwargs)
 
 
+def _extract_base_form_no_fix(cls, tree, iteritems_options={}):
+    """
+    patched version for UprootSourceMapping._extract_base_form to skip fixing object branches
+
+    needed to experiment with AwkwardForth before
+    https://github.com/CoffeaTeam/coffea/pull/609
+    """
+
+    import json
+    import warnings
+    from coffea.nanoevents.mapping.uproot import CannotBeNanoEvents, _lazify_form
+
+    branch_forms = {}
+    for key, branch in tree.iteritems(**iteritems_options):
+        if key in branch_forms:
+            warnings.warn(
+                f"Found duplicate branch {key} in {tree}, taking first instance"
+            )
+            continue
+        if "," in key or "!" in key:
+            warnings.warn(
+                f"Skipping {key} because it contains characters that NanoEvents cannot accept [,!]"
+            )
+            continue
+        if len(branch):
+            # The branch is split and its sub-branches will be enumerated by tree.iteritems
+            continue
+        if isinstance(
+            branch.interpretation,
+            uproot.interpretation.identify.UnknownInterpretation,
+        ):
+            warnings.warn(f"Skipping {key} as it is not interpretable by Uproot")
+            continue
+        try:
+            form = branch.interpretation.awkward_form(None)
+        except uproot.interpretation.objects.CannotBeAwkward:
+            warnings.warn(
+                f"Skipping {key} as it is it cannot be represented as an Awkward array"
+            )
+            continue
+        form = uproot._util.awkward_form_remove_uproot(awkward, form)
+        form = json.loads(
+            form.tojson()
+        )  # normalizes form (expand NumpyArray classes)
+        try:
+            form = _lazify_form(form, f"{key},!load", docstr=branch.title)
+        except CannotBeNanoEvents as ex:
+            warnings.warn(
+                f"Skipping {key} as it is not interpretable by NanoEvents\nDetails: {ex}"
+            )
+            continue
+        branch_forms[key] = form
+
+    return {
+        "class": "RecordArray",
+        "contents": branch_forms,
+        "parameters": {"__doc__": tree.title},
+        "form_key": "",
+    }
+
+
 def patch_nanoevents(verbose=False):
     """
     Patch the `extract_column` method of `UprootSourceMapping` in
@@ -375,4 +436,13 @@ def patch_nanoevents(verbose=False):
         return branch_to_array(columnhandle, entry_start=start, entry_stop=stop)
 
     UprootSourceMapping.extract_column = extract_column
-    PHYSLITESchema._hack_for_elementlink_int64 = False
+    if hasattr(PHYSLITESchema, "_hack_for_elementlink_int64"):
+        PHYSLITESchema._hack_for_elementlink_int64 = False
+    if hasattr(UprootSourceMapping, "_fix_awkward_form_of_iter"):
+        UprootSourceMapping._fix_awkward_form_of_iter = False
+    if (
+            hasattr(uproot._util, "recursively_fix_awkward_form_of_iter")
+            and not hasattr(UprootSourceMapping, "_fix_awkward_form_of_iter")
+    ):
+        # https://github.com/CoffeaTeam/coffea/pull/609 not yet applied
+        UprootSourceMapping._extract_base_form = _extract_base_form_no_fix
