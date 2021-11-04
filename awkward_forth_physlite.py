@@ -437,8 +437,11 @@ def patch_nanoevents(verbose=False):
 
     UprootSourceMapping.extract_column = extract_column
     if hasattr(PHYSLITESchema, "_hack_for_elementlink_int64"):
+        # before v0.7.8
         PHYSLITESchema._hack_for_elementlink_int64 = False
     if hasattr(UprootSourceMapping, "_fix_awkward_form_of_iter"):
+        # after https://github.com/CoffeaTeam/coffea/pull/609
+        # (probably then in v0.7.10)
         UprootSourceMapping._fix_awkward_form_of_iter = False
     if (
             hasattr(uproot._util, "recursively_fix_awkward_form_of_iter")
